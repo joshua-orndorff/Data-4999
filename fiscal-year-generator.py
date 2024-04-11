@@ -14,6 +14,7 @@ if __name__ == "__main__":
     # Execute the query and get the result as a DataFrame
     df = sql_executor.execute_query(query)
 
+
 # Convert date columns to datetime objects
 df['fiscal_start'] = pd.to_datetime(df['fiscal_start'])
 df['fiscal_end'] = pd.to_datetime(df['fiscal_end'])
@@ -63,14 +64,24 @@ for i in range(len(df) - 1):
 
         # Check if fiscal reports are chronologically consecutive and if aggregated the fiscal range would be 364 days
         if (report_end_time_difference <= pd.Timedelta(days=7) and fiscal_range.days in [363, 364, 365]):
-            # Add the first row to the remove list and aggregate the remaining data
-            # Update fiscal_start of row2
+            
             df.at[i + 1, 'fiscal_start'] = first_row['fiscal_start']
             
             # Sum columns for accounting period
             for column in columns_to_sum:
-                df.at[i + 1, column] = first_row[column] + second_row[column]
+                first_row_c = first_row[column]
+                second_row_c = second_row[column]
+
+                if pd.isna(first_row_c) & pd.isna(second_row_c):
+                    df.at[i + 1, column] = pd.NA
+                elif pd.isna(first_row_c):
+                    first_row_c = 0
+                elif pd.isna(second_row_c):
+                    second_row_c = 0
+                else:
+                    df.at[i + 1, column] = first_row_c + second_row_c
             
+                
             # Store the first row to delete it after
             rows_to_remove.append(i)
 
@@ -106,7 +117,17 @@ for i in range(len(df) - 1):
             
             # Sum columns for accounting period
             for column in columns_to_sum:
-                df.at[i + 1, column] = first_row[column] + second_row[column]
+                first_row_c = first_row[column]
+                second_row_c = second_row[column]
+
+                if pd.isna(first_row_c) & pd.isna(second_row_c):
+                    df.at[i + 1, column] = pd.NA
+                elif pd.isna(first_row_c):
+                    first_row_c = 0
+                elif pd.isna(second_row_c):
+                    second_row_c = 0
+                else:
+                    df.at[i + 1, column] = first_row_c + second_row_c
             
             # Store the first row to delete it after
             rows_to_remove.append(i)
