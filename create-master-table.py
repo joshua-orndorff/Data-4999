@@ -12,7 +12,7 @@ if __name__ == "__main__":
         SELECT 
         
             a.prov_id,
-            a.fiscal_year, 
+            a.fiscal_year as year, 
             CAST(a.ownership AS CHAR) AS ownership,
             i.chow_last_12mos,
             i.state,
@@ -40,11 +40,11 @@ if __name__ == "__main__":
             (a.tot_current_assets / NULLIF(a.total_assets, 0)) as pct_current_assets,
             (a.tot_fixed_assets / NULLIF(a.total_assets, 0)) as pct_fixed_assets,
             (a.total_other_assets / NULLIF(a.total_assets, 0)) as pct_other_assets,
-            (a.tot_fund_balance / NULLIF(a.total_assets, 0)) as pct_fund_balance,
             a.total_assets,
             a.acct_payable,
             (a.tot_current_liabilities / NULLIF(a.total_liabilities, 0)) as pct_current_liabilities,
             a.total_liabilities,
+            a.tot_fund_balance,
             a.contract_labor,
             a.tot_salaries,
             a.overhead_nonsalary_costs,
@@ -79,12 +79,16 @@ if __name__ == "__main__":
             a.inpatient_revenue,
             a.net_patient_revenue,
             a.net_income,
-            (a.tot_income - a.total_operating_expense) as operating_income,
+            a.tot_income,
+            (a.gross_revenue - a.total_operating_expense) as operating_income,
             a.gross_revenue,
             (i.totlichrd / NULLIF(a.net_income_from_service_to_patients, 0)) as lic_staff_income_ratio,
             (a.inpatient_revenue / NULLIF(a.num_beds, 0)) as inpatient_revenue_per_bed,
             ((a.tot_income - a.total_operating_expense) / NULLIF(a.gross_revenue, 0)) as operating_margin,
-            (a.net_income / NULLIF(a.gross_revenue, 0)) as profit_margin
+            (a.net_income / NULLIF(a.gross_revenue, 0)) as profit_margin,
+            (a.net_income / NULLIF(a.total_assets, 0)) as roa,
+            (i.totlichrd / i.tothrd) as makeup
+            
 
         FROM aggCostReports a
 
@@ -95,11 +99,21 @@ if __name__ == "__main__":
         LEFT JOIN (
                 SELECT * FROM ProviderInfo
             ) i ON a.prov_id = i.prov_id AND a.fiscal_year = LEFT(i.filedate,4);
-
         """
 
     # Execute the query and get the result as a DataFrame
     df_init = sql_executor.execute_query(query)
+    
+    query= """
+        SELECT zip, over_70_pct, pop_over_70  FROM Over70 WHERE year = 2020;
+        """
+
+    # Execute the query and get the result as a DataFrame
+    df_pop = sql_executor.execute_query(query)
+
+# Join pop data into the main df
+df_pop['zip'] = pd.to_numeric(df_pop['zip'], errors='coerce')
+df_init = pd.merge(df_init, df_pop, on=['zip'], how='left')
 
 def get_region(state_code):
     regions = {
@@ -161,6 +175,68 @@ def get_region(state_code):
 
 df_init['region'] = df_init['state'].apply(get_region)
 
+def get_political_lean(state_code):
+    political_leanings = {
+        'al': 'Conservative',
+        'ak': 'Mixed',
+        'az': 'Mixed',
+        'ar': 'Conservative',
+        'ca': 'Liberal',
+        'co': 'Mixed',
+        'ct': 'Liberal',
+        'de': 'Liberal',
+        'dc': 'Liberal',
+        'fl': 'Mixed',
+        'ga': 'Conservative',
+        'hi': 'Liberal',
+        'id': 'Conservative',
+        'il': 'Liberal',
+        'in': 'Conservative',
+        'ia': 'Mixed',
+        'ks': 'Conservative',
+        'ky': 'Conservative',
+        'la': 'Conservative',
+        'me': 'Mixed',
+        'md': 'Liberal',
+        'ma': 'Liberal',
+        'mi': 'Mixed',
+        'mn': 'Liberal',
+        'ms': 'Conservative',
+        'mo': 'Conservative',
+        'mt': 'Conservative',
+        'ne': 'Conservative',
+        'nv': 'Mixed',
+        'nh': 'Mixed',
+        'nj': 'Liberal',
+        'nm': 'Liberal',
+        'ny': 'Liberal',
+        'nc': 'Mixed',
+        'nd': 'Conservative',
+        'oh': 'Mixed',
+        'ok': 'Conservative',
+        'or': 'Liberal',
+        'pa': 'Mixed',
+        'pr': 'Liberal',
+        'ri': 'Liberal',
+        'sc': 'Conservative',
+        'sd': 'Conservative',
+        'tn': 'Conservative',
+        'tx': 'Conservative',
+        'ut': 'Conservative',
+        'vt': 'Liberal',
+        'va': 'Mixed',
+        'wa': 'Liberal',
+        'wv': 'Conservative',
+        'wi': 'Mixed',
+        'wy': 'Conservative'
+    }
+    
+    return political_leanings.get(state_code, 'Unknown')
+
+# Assuming df_init is your DataFrame
+df_init['state_lean'] = df_init['state'].apply(get_political_lean)
+
+
 def get_ownership(ownership_code):
     ownership_mapping = {
         '1' : 'Nonprofit',
@@ -199,6 +275,33 @@ def snf_size(data):
     
 df['snf_size'] = df['num_beds'].apply(snf_size)
 
+
+# Calculate percentiles once
+makeup_33 = df['makeup'].quantile(0.33)
+makeup_66 = df['makeup'].quantile(0.66)
+stay_length_33 = df['snf_avg_stay_len_title_tot'].quantile(0.33)
+stay_length_66 = df['snf_avg_stay_len_title_tot'].quantile(0.66)
+
+def staff_style(data):
+    if data <= makeup_33:
+        return 'low_license'
+    elif data <= makeup_66:
+        return 'med_license'
+    else:
+        return 'high_license'
+    
+df['staff_style'] = df['makeup'].apply(staff_style)
+
+def stay_length(data):
+    if data <= stay_length_33:
+        return 'short_term'
+    elif data <= stay_length_66:
+        return 'med_term'
+    else:
+        return 'long_term'
+    
+df['fac_type'] = df['snf_avg_stay_len_title_tot'].apply(stay_length)
+
 # Reduce zip for binning
 df.loc[:, 'zip'] = (df['zip'] // 1000).astype(str)
 
@@ -209,7 +312,7 @@ df['weighted_all_cycles_score'] = pd.to_numeric(df['weighted_all_cycles_score'],
 
 # Pull difference ratios
 df['snf_discharge_tot'] = df['snf_discharge_tot'] - df['tot_discharge_tot']
-df['snf_num_beds'] = df['snf_num_beds'] - df['num_beds']   
+df['nf_num_beds'] =  df['num_beds']  - df['snf_num_beds']
 df['totlichrd_to_tot'] = df['totlichrd'] / df['tothrd']    
 
 # Normalize data using number of beds to control for size
@@ -238,12 +341,18 @@ columns = [
     'buildings',
     'fine_cnt',
     'fine_tot',
-    'snf_admis_tot'
+    'snf_admis_tot',
+    'snf_num_beds',
+    'nf_num_beds',
+    'bedcert',
+    'tot_fund_balance'
 ]
 
 for col in columns:
     # Perform division of the column by 'num_beds' without creating a new column
     df[col] = df[col] / df['num_beds']
+
+df = df.drop_duplicates(subset=['prov_id', 'year'])
 
 # Sent to csv
 df.to_csv('~/Documents/Code/Data-4999/BAC@MC 2024 Phase One Datasets/master.csv')
