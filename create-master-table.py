@@ -42,6 +42,11 @@ if __name__ == "__main__":
             (a.total_other_assets / NULLIF(a.total_assets, 0)) as pct_other_assets,
             a.total_assets,
             a.acct_payable,
+            a.mortgage_payable,
+            a.notes_payable,
+            a.unsecured_loans,
+            (a.acct_payable + a.mortgage_payable + a.notes_payable + a.unsecured_loans) as total_debt,
+            total_long_term_liabilities,
             (a.tot_current_liabilities / NULLIF(a.total_liabilities, 0)) as pct_current_liabilities,
             a.total_liabilities,
             a.tot_fund_balance,
@@ -305,13 +310,10 @@ df['fac_type'] = df['snf_avg_stay_len_title_tot'].apply(stay_length)
 # Reduce zip for binning
 df.loc[:, 'zip'] = (df['zip'] // 1000).astype(str)
 
-# Replace NaN values with median for numerical columns
-numerical_columns = df.select_dtypes(include=['number']).columns
-df[numerical_columns] = df[numerical_columns].fillna(df[numerical_columns].median())
 df['weighted_all_cycles_score'] = pd.to_numeric(df['weighted_all_cycles_score'], errors='coerce')
 
 # Pull difference ratios
-df['snf_discharge_tot'] = df['snf_discharge_tot'] - df['tot_discharge_tot']
+df['nf_discharge_tot'] = df['tot_discharge_tot'] - df['snf_discharge_tot']
 df['nf_num_beds'] =  df['num_beds']  - df['snf_num_beds']
 df['totlichrd_to_tot'] = df['totlichrd'] / df['tothrd']    
 
@@ -354,13 +356,10 @@ for col in columns:
 
 df = df.drop_duplicates(subset=['prov_id', 'year'])
 
-# Sent to csv
-df.to_csv('~/Documents/Code/Data-4999/BAC@MC 2024 Phase One Datasets/master.csv')
-
 # MySQL connection parameters
 host= 'localhost'
 user= 'josh'
-password= 'go$T4GS'
+password= 'go$T4GS123'
 database= 'data_4999'
 
 # Create MySQL connection
