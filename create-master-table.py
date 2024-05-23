@@ -1,6 +1,10 @@
 from myclasses.sql_executor import SQLExecutor
 from sqlalchemy import create_engine
 import pandas as pd
+import warnings
+
+# Disable the SettingWithCopyWarning
+pd.options.mode.chained_assignment = None  # default='warn'
 
 if __name__ == "__main__":
     # Create an instance of SQLExecutor
@@ -10,12 +14,12 @@ if __name__ == "__main__":
     query = """
 
         SELECT 
-        
             a.prov_id,
             a.fiscal_year as year, 
             CAST(a.ownership AS CHAR) AS ownership,
             i.chow_last_12mos,
             i.state,
+            i.city,
             i.county_ssa,
             i.zip,
             a.loc_type,
@@ -57,6 +61,7 @@ if __name__ == "__main__":
             a.tot_costs,
             a.total_operating_expense,
             a.buildings,
+            a.tot_salaries_adjusted,
             (a.tot_current_assets / NULLIF(a.tot_current_liabilities, 0)) as current_ratio,
             (a.cash_on_hand_and_in_banks / NULLIF(a.tot_current_liabilities, 0)) as quick_ratio,
             (a.gross_revenue / NULLIF(a.tot_fixed_assets, 0)) as fixed_asset_to_ratio,
@@ -81,6 +86,7 @@ if __name__ == "__main__":
             i.weighted_all_cycles_score,
             i.certification,
             i.bedcert,
+            i.snfs_in_city,
             a.inpatient_revenue,
             a.net_patient_revenue,
             a.net_income,
@@ -261,13 +267,24 @@ def get_ownership(ownership_code):
     return ownership_mapping.get(ownership_code, 'Unknown')
 
 # Assuming 'ownership' column contains the ownership codes
-df_init['ownership'] = df_init['ownership'].apply(get_ownership)
+df_init.loc[:, 'ownership_type'] = df_init['ownership'].apply(get_ownership)
 
 # Drop observations where null in netincome
 df = df_init.dropna(subset=['net_income','gross_revenue'])
 numerical_columns = df.select_dtypes(include=['number']).columns
-for column in numerical_columns:
-    df.loc[:, column] = df[column].fillna(df[column].median())
+
+
+# Conditions
+condition1 = df['certification'] == 'medicare'
+condition2 = df['certification'] == 'medicare and medicaid'
+condition3 = df['certification'] == 'medicaid'
+
+# Create new columns
+df.loc[:, 'medicare'] = (condition1 | condition2).astype(bool)
+df.loc[:, 'medicaid'] = (condition2 | condition3).astype(bool)
+
+df.drop(columns=['certification'])
+
 
 def snf_size(data):
 
@@ -278,7 +295,7 @@ def snf_size(data):
     else:
         return 'Small(52)'
     
-df['snf_size'] = df['num_beds'].apply(snf_size)
+df.loc[:, 'snf_size'] = df['num_beds'].apply(snf_size)
 
 
 # Calculate percentiles once
@@ -295,7 +312,7 @@ def staff_style(data):
     else:
         return 'high_license'
     
-df['staff_style'] = df['makeup'].apply(staff_style)
+df.loc[:, 'staff_style'] = df['makeup'].apply(staff_style)
 
 def stay_length(data):
     if data <= stay_length_33:
@@ -305,17 +322,17 @@ def stay_length(data):
     else:
         return 'long_term'
     
-df['fac_type'] = df['snf_avg_stay_len_title_tot'].apply(stay_length)
+df.loc[:, 'fac_type'] = df['snf_avg_stay_len_title_tot'].apply(stay_length)
 
 # Reduce zip for binning
 df.loc[:, 'zip'] = (df['zip'] // 1000).astype(str)
 
-df['weighted_all_cycles_score'] = pd.to_numeric(df['weighted_all_cycles_score'], errors='coerce')
+df.loc[:, 'weighted_all_cycles_score'] = pd.to_numeric(df['weighted_all_cycles_score'], errors='coerce')
 
 # Pull difference ratios
-df['nf_discharge_tot'] = df['tot_discharge_tot'] - df['snf_discharge_tot']
-df['nf_num_beds'] =  df['num_beds']  - df['snf_num_beds']
-df['totlichrd_to_tot'] = df['totlichrd'] / df['tothrd']    
+df.loc[:, 'nf_discharge_tot'] = df['tot_discharge_tot'] - df['snf_discharge_tot']
+df.loc[:, 'nf_num_beds'] =  df['num_beds']  - df['snf_num_beds']
+df.loc[:, 'totlichrd_to_tot'] = df['totlichrd'] / df['tothrd']    
 
 # Normalize data using number of beds to control for size
 columns = [
@@ -326,7 +343,6 @@ columns = [
     'tot_days_title_xviii',
     'tot_days_title_xix',
     'tot_bed_days_avail',
-    'snf_avg_stay_len_title_tot',
     'tot_discharge_tot',
     'snf_discharge_tot',
     'cash',
@@ -352,7 +368,7 @@ columns = [
 
 for col in columns:
     # Perform division of the column by 'num_beds' without creating a new column
-    df[col] = df[col] / df['num_beds']
+    df.loc[:, col] = df[col] / df['num_beds']
 
 df = df.drop_duplicates(subset=['prov_id', 'year'])
 

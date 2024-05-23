@@ -15,7 +15,7 @@ class SQLExecutor:
         execute_query(sql_query: str) -> pd.DataFrame: Execute the provided SQL query and return the results as a DataFrame.
     """
 
-    DB_URI = "mysql+mysqlconnector://josh:go$T4GS@localhost/data_4999"
+    DB_URI = "mysql+mysqlconnector://josh:go$T4GS123@localhost/data_4999"
     
     def __init__(self):
         """Initialize the SQLExecutor object and create an SQLAlchemy engine."""
